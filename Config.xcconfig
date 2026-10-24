@@ -1,0 +1,8 @@
+// Spotify app registration — https://developer.spotify.com/dashboard
+// 1. Create an app, add Redirect URI  ipod-spotify://callback  and your iOS bundle ID.
+// 2. Paste the Client ID below.
+SPOTIFY_CLIENT_ID = YOUR_SPOTIFY_CLIENT_ID
+SPOTIFY_REDIRECT_SCHEME = ipod-spotify
+
+PRODUCT_BUNDLE_IDENTIFIER = com.example.ipod
+DEVELOPMENT_TEAM =
