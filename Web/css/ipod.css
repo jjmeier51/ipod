@@ -30,6 +30,25 @@
   :root { --page-bg: #1d1d1f; }
 }
 
+/* Same reset Apple applies inside the component's shadow root; the shell's
+   rings and the progress bar are sized assuming border-box. */
+html {
+  box-sizing: border-box;
+}
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+ul, ol, li, p, h1, h2, h3, figure, button {
+  margin: 0;
+  padding: 0;
+}
+ul, ol {
+  list-style-type: none;
+}
+svg {
+  pointer-events: none;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -623,7 +642,6 @@ button {
   border-radius: 7px;
   overflow: hidden;
   direction: ltr;
-  box-sizing: content-box;
 }
 .progress-bar.marker { overflow: visible; }
 .progress-fill {

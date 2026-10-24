@@ -74,6 +74,8 @@ final class Services: ObservableObject {
             return try await library.load(forceRefresh: false)
         case "library.refresh":
             return try await library.load(forceRefresh: true)
+        case "library.liked":
+            return TracksPayload(tracks: try await library.playlistTracks(id: LibraryStore.likedPlaylistID))
         case "library.playlistTracks":
             let a = try decode(IDArgs.self, args)
             return TracksPayload(tracks: try await library.playlistTracks(id: a.id))

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - Models shared with the web UI (field names match the JS side)
 
@@ -18,6 +19,7 @@ struct Playlist: Codable, Hashable {
     let uri: String
     let name: String
     let trackCount: Int
+    var snapshotID: String?
 }
 
 struct Artist: Codable, Hashable {
@@ -31,16 +33,6 @@ struct Album: Codable, Hashable {
     let uri: String
     let name: String
     let artistName: String
-}
-
-struct Library: Codable {
-    var playlists: [Playlist]
-    var artists: [Artist]
-    var albums: [Album]
-    var songs: [Track]
-    var fetchedAt: Date
-
-    static let empty = Library(playlists: [], artists: [], albums: [], songs: [], fetchedAt: .distantPast)
 }
 
 struct UserProfile: Codable {
@@ -95,6 +87,8 @@ final class SpotifyWebAPI {
     private let session = URLSession(configuration: .default)
     private let base = URL(string: "https://api.spotify.com/v1/")!
     private let decoder = JSONDecoder()
+    private let log = Logger(subsystem: "ipod", category: "spotify-api")
+    private let throttle = RequestThrottle(minimumGap: 0.08)
 
     init(auth: SpotifyAuth) {
         self.auth = auth
@@ -115,16 +109,26 @@ final class SpotifyWebAPI {
         }
         var attempt = 0
         while true {
+            await throttle.wait()
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { throw APIError.http(0, "no response") }
-            if http.statusCode == 429, attempt < 3 {
-                let retry = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "1") ?? 1
-                try await Task.sleep(nanoseconds: UInt64(min(retry, 5) * 1_000_000_000))
+            // Spotify rate-limits in bursts; honour Retry-After (it can be tens of seconds).
+            if http.statusCode == 429, attempt < 6 {
+                let retry = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "2") ?? 2
+                let delay = min(max(retry, 1), 90)
+                log.notice("429 on \(path, privacy: .public); waiting \(delay)s")
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                attempt += 1
+                continue
+            }
+            if (500..<600).contains(http.statusCode), attempt < 2 {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
                 attempt += 1
                 continue
             }
             guard (200..<300).contains(http.statusCode) else {
                 let text = String(decoding: data, as: UTF8.self)
+                log.error("\(method, privacy: .public) \(path, privacy: .public) → \(http.statusCode) \(String(text.prefix(300)), privacy: .public)")
                 if http.statusCode == 404, text.contains("NO_ACTIVE_DEVICE") { throw APIError.noActiveDevice }
                 if http.statusCode == 403, text.contains("PREMIUM_REQUIRED") { throw APIError.premiumRequired }
                 throw APIError.http(http.statusCode, text)
@@ -135,7 +139,12 @@ final class SpotifyWebAPI {
 
     private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = []) async throws -> T {
         let (data, _) = try await request("GET", path, query: query)
-        return try decoder.decode(type, from: data)
+        do {
+            return try decoder.decode(type, from: data)
+        } catch {
+            log.error("decode \(path, privacy: .public): \(String(describing: error), privacy: .public)")
+            throw error
+        }
     }
 
     private struct Page<I: Decodable>: Decodable { let items: [I?]; let next: String? }
@@ -200,15 +209,15 @@ final class SpotifyWebAPI {
     }
 
     func playlists() async throws -> [Playlist] {
-        struct Item: Decodable { let id: String; let uri: String; let name: String; let tracks: Count?; struct Count: Decodable { let total: Int } }
+        struct Item: Decodable { let id: String; let uri: String; let name: String; let tracks: Count?; let snapshot_id: String?; struct Count: Decodable { let total: Int } }
         let items = try await paged(Item.self, "me/playlists", query: [])
-        return items.map { Playlist(id: $0.id, uri: $0.uri, name: $0.name, trackCount: $0.tracks?.total ?? 0) }
+        return items.map { Playlist(id: $0.id, uri: $0.uri, name: $0.name, trackCount: $0.tracks?.total ?? 0, snapshotID: $0.snapshot_id) }
     }
 
     func playlistTracks(id: String) async throws -> [Track] {
         struct Item: Decodable { let track: APITrack? }
-        let fields = "items(track(id,uri,name,duration_ms,is_local,artists(id,name),album(id,name))),next"
-        let items = try await paged(Item.self, "playlists/\(id)/tracks", query: [.init(name: "fields", value: fields), .init(name: "market", value: "from_token")])
+        let fields = "next,total,items(track(id,uri,name,duration_ms,is_local,type,artists(id,name),album(id,name)))"
+        let items = try await paged(Item.self, "playlists/\(id)/tracks", query: [.init(name: "fields", value: fields), .init(name: "market", value: "from_token"), .init(name: "additional_types", value: "track")])
         return items.compactMap { $0.track }.compactMap { track(from: $0) }
     }
 
@@ -290,4 +299,22 @@ final class SpotifyWebAPI {
     func seek(ms: Int) async throws { _ = try await request("PUT", "me/player/seek", query: [.init(name: "position_ms", value: String(max(0, ms)))]) }
     func setShuffle(_ on: Bool) async throws { _ = try await request("PUT", "me/player/shuffle", query: [.init(name: "state", value: on ? "true" : "false")]) }
     func setRepeat(_ mode: String) async throws { _ = try await request("PUT", "me/player/repeat", query: [.init(name: "state", value: mode)]) }
+}
+
+/// Spaces requests out a little so a library crawl doesn't trip Spotify's burst limit.
+actor RequestThrottle {
+    private let minimumGap: TimeInterval
+    private var last = Date.distantPast
+
+    init(minimumGap: TimeInterval) {
+        self.minimumGap = minimumGap
+    }
+
+    func wait() async {
+        let since = Date().timeIntervalSince(last)
+        if since < minimumGap {
+            try? await Task.sleep(nanoseconds: UInt64((minimumGap - since) * 1_000_000_000))
+        }
+        last = Date()
+    }
 }

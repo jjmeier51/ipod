@@ -244,14 +244,15 @@ window.IPOD = window.IPOD || {};
     const d = descriptor(s.key);
     if (!d.fetch || !s.contextId) return;
     const id = screenId(s);
-    if (trackCache.has(id)) return;
+    // `undefined` = loading, `null` = failed (retried on the next visit).
+    if (trackCache.has(id) && trackCache.get(id) !== null) return;
     trackCache.set(id, undefined);
     bridge.call(d.fetch, { id: s.contextId }).then((res) => {
       trackCache.set(id, (res && res.tracks) || []);
       if (screenId(top()) === id) refreshList({ keepSelection: true });
     }).catch((err) => {
       console.warn("track fetch failed", err);
-      trackCache.set(id, []);
+      trackCache.set(id, null);
       if (screenId(top()) === id) refreshList({ keepSelection: true });
     });
   }
@@ -403,6 +404,8 @@ window.IPOD = window.IPOD || {};
       const out = old.animate([{ transform: "translateX(0)" }, { transform: `translateX(${-dir * width}px)` }], { duration: SCREEN_SLIDE_MS, easing });
       out.onfinish = () => old.remove();
       out.oncancel = () => old.remove();
+      // Belt and braces: never leave a stale screen behind if the animation never reports.
+      setTimeout(() => old.remove(), SCREEN_SLIDE_MS + 60);
     } else if (old) {
       old.remove();
     }
@@ -937,7 +940,8 @@ window.IPOD = window.IPOD || {};
     library.artists = lib.artists || [];
     library.albums = lib.albums || [];
     library.songs = lib.songs || [];
-    trackCache.clear();
+    // Forget only failed/empty track lists; successful ones stay valid.
+    for (const [k, v] of [...trackCache.entries()]) if (v === null || (Array.isArray(v) && v.length === 0)) trackCache.delete(k);
     if (currentView && currentView.kind === "list") refreshList({ keepSelection: true });
   }
   function loadLibrary(force) {

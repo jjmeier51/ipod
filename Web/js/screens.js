@@ -26,6 +26,7 @@ window.IPOD = window.IPOD || {};
     "Menu.AllSongs": "All Songs",
     "Menu.NoMusic": "No Music",
     "Menu.Loading": "Loading…",
+    "Menu.CouldNotLoad": "Could Not Load",
     "Menu.SignIn": "Sign In to Spotify",
     "Extras.Clock": "Clock",
     "Extras.Games": "Games",
@@ -122,9 +123,10 @@ window.IPOD = window.IPOD || {};
   const info = (id, title, value, centered) => ({ id, title, action: "info", value, centered });
   const toggleRow = (key, titleKey, values) => ({ id: key, title: i18n.t(titleKey), action: "inline-toggle", toggleKey: key, values });
 
-  function orEmpty(items, { loading, signedIn }) {
+  function orEmpty(items, { loading, failed, signedIn }) {
     if (items.length) return items;
     if (!signedIn) return [{ id: "sign-in", title: i18n.t("Menu.SignIn"), action: "sign-in", centered: true }];
+    if (failed) return [info("failed", i18n.t("Menu.CouldNotLoad"), undefined, true)];
     if (loading) return [info("loading", i18n.t("Menu.Loading"), undefined, true)];
     return [info("no-music", i18n.t("Menu.NoMusic"), undefined, true)];
   }
@@ -133,6 +135,7 @@ window.IPOD = window.IPOD || {};
     const items = (tracks || []).map((t, i) => ({ id: t.uri || t.id, title: t.name, action: "play", trackIndex: i }));
     return orEmpty(items, ctx);
   }
+  const trackCtx = (ctx) => ({ ...ctx, loading: ctx.tracks === undefined, failed: ctx.tracks === null });
 
   const SCREENS = {
     main: {
@@ -266,7 +269,7 @@ window.IPOD = window.IPOD || {};
       view: "list",
       titleKey: "Menu.Playlists",
       title: (ctx) => (ctx.library.playlists || []).find((p) => p.id === ctx.contextId)?.name,
-      items: (ctx) => trackItems(ctx.tracks, { ...ctx, loading: ctx.tracks === undefined }),
+      items: (ctx) => trackItems(ctx.tracks, trackCtx(ctx)),
       tracks: (ctx) => ctx.tracks || [],
       contextUri: (ctx) => (ctx.library.playlists || []).find((p) => p.id === ctx.contextId)?.uri || null,
       fetch: "library.playlistTracks",
@@ -275,7 +278,7 @@ window.IPOD = window.IPOD || {};
       view: "list",
       titleKey: "Menu.Artists",
       title: (ctx) => (ctx.library.artists || []).find((a) => a.id === ctx.contextId)?.name,
-      items: (ctx) => trackItems(ctx.tracks, { ...ctx, loading: ctx.tracks === undefined }),
+      items: (ctx) => trackItems(ctx.tracks, trackCtx(ctx)),
       tracks: (ctx) => ctx.tracks || [],
       contextUri: () => null,
       fetch: "library.artistTracks",
@@ -284,7 +287,7 @@ window.IPOD = window.IPOD || {};
       view: "list",
       titleKey: "Menu.Albums",
       title: (ctx) => (ctx.library.albums || []).find((a) => a.id === ctx.contextId)?.name,
-      items: (ctx) => trackItems(ctx.tracks, { ...ctx, loading: ctx.tracks === undefined }),
+      items: (ctx) => trackItems(ctx.tracks, trackCtx(ctx)),
       tracks: (ctx) => ctx.tracks || [],
       contextUri: (ctx) => (ctx.library.albums || []).find((a) => a.id === ctx.contextId)?.uri || null,
       fetch: "library.albumTracks",
