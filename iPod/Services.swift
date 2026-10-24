@@ -87,31 +87,31 @@ final class Services: ObservableObject {
         case "player.play":
             let a = try decode(PlayArgs.self, args)
             try await playback.play(uris: a.uris, offset: a.offset ?? 0, contextUri: a.contextUri)
-            return Empty()
+            return EmptyPayload()
         case "player.resume":
             try await playback.resume()
-            return Empty()
+            return EmptyPayload()
         case "player.pause":
             try await playback.pause()
-            return Empty()
+            return EmptyPayload()
         case "player.next":
             try await playback.next()
-            return Empty()
+            return EmptyPayload()
         case "player.previous":
             try await playback.previous()
-            return Empty()
+            return EmptyPayload()
         case "player.seek":
             let a = try decode(SeekArgs.self, args)
             try await playback.seek(toMs: a.positionMs)
-            return Empty()
+            return EmptyPayload()
         case "player.setShuffle":
             let a = try decode(ShuffleArgs.self, args)
             try await playback.setShuffle(a.enabled)
-            return Empty()
+            return EmptyPayload()
         case "player.setRepeat":
             let a = try decode(RepeatArgs.self, args)
             try await playback.setRepeat(a.mode)
-            return Empty()
+            return EmptyPayload()
         case "player.state":
             return playback.snapshot
 
@@ -124,16 +124,16 @@ final class Services: ObservableObject {
         case "system.haptic":
             let a = (try? decode(HapticArgs.self, args)) ?? HapticArgs(kind: "light")
             system.haptic(kind: a.kind)
-            return Empty()
+            return EmptyPayload()
         case "system.click":
             system.click()
-            return Empty()
+            return EmptyPayload()
         case "system.openSpotify":
             system.openSpotify()
-            return Empty()
+            return EmptyPayload()
         case "system.ready":
             playback.webReady()
-            return Empty()
+            return EmptyPayload()
         default:
             throw BridgeError.unknownMethod(method)
         }
@@ -158,7 +158,7 @@ final class Services: ObservableObject {
 
 // MARK: - Bridge payloads
 
-struct Empty: Encodable {}
+struct EmptyPayload: Encodable {}
 struct IDArgs: Decodable { let id: String }
 struct PlayArgs: Decodable { let uris: [String]; let offset: Int?; let contextUri: String? }
 struct SeekArgs: Decodable { let positionMs: Int }

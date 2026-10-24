@@ -89,9 +89,14 @@ final class SpotifyRemote: NSObject {
         }
     }
 
+    private var isConnecting = false
+
     private func attemptConnect() async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             connectContinuations.append(cont)
+            // A second caller while an attempt is in flight just waits for it.
+            guard !isConnecting else { return }
+            isConnecting = true
             armConnectTimeout(seconds: 10)
             appRemote.connect()
         }
@@ -116,7 +121,11 @@ final class SpotifyRemote: NSObject {
         guard let params = appRemote.authorizationParameters(from: url) else { return false }
         if let token = params[SPTAppRemoteAccessTokenKey] {
             appRemote.connectionParameters.accessToken = token
-            appRemote.connect()
+            if !isConnecting {
+                isConnecting = true
+                armConnectTimeout(seconds: 10)
+                appRemote.connect()
+            }
             return true
         }
         if let message = params[SPTAppRemoteErrorDescriptionKey] {
@@ -127,6 +136,7 @@ final class SpotifyRemote: NSObject {
     }
 
     private func failConnect(_ error: Error) {
+        isConnecting = false
         connectTimeout?.cancel()
         connectTimeout = nil
         let conts = connectContinuations
@@ -135,6 +145,7 @@ final class SpotifyRemote: NSObject {
     }
 
     private func succeedConnect() {
+        isConnecting = false
         connectTimeout?.cancel()
         connectTimeout = nil
         let conts = connectContinuations

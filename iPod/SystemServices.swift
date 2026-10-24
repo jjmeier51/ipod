@@ -18,7 +18,7 @@ final class SystemServices: NSObject {
         return v
     }()
     private var volumeSlider: UISlider? { volumeView.subviews.compactMap { $0 as? UISlider }.first }
-    private var suppressVolumeEvents = 0
+    private var suppressVolumeEventsUntil = Date.distantPast
 
     private let lightImpact = UIImpactFeedbackGenerator(style: .light)
     private let mediumImpact = UIImpactFeedbackGenerator(style: .medium)
@@ -32,7 +32,8 @@ final class SystemServices: NSObject {
         volumeObservation = session.observe(\.outputVolume, options: [.new]) { [weak self] _, change in
             guard let self, let v = change.newValue else { return }
             Task { @MainActor in
-                if self.suppressVolumeEvents > 0 { self.suppressVolumeEvents -= 1; return }
+                // Changes we made ourselves come back through KVO too; ignore those.
+                if Date() < self.suppressVolumeEventsUntil { return }
                 self.onVolumeChange?(Double(v) * 100)
             }
         }
@@ -56,8 +57,16 @@ final class SystemServices: NSObject {
         if let window = scenes.flatMap({ $0.windows }).first {
             window.addSubview(volumeView)
         } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.installVolumeView() }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self?.installVolumeView()
+            }
         }
+    }
+
+    /// Re-activates the audio session (volume KVO stops after interruptions).
+    func appDidBecomeActive() {
+        try? session.setActive(true)
     }
 
     // MARK: Volume
@@ -69,7 +78,7 @@ final class SystemServices: NSObject {
     func setVolume(_ percent: Double) {
         let v = Float(min(max(percent, 0), 100) / 100)
         guard let slider = volumeSlider else { return }
-        suppressVolumeEvents += 1
+        suppressVolumeEventsUntil = Date().addingTimeInterval(0.3)
         slider.setValue(v, animated: false)
         slider.sendActions(for: .touchUpInside)
     }

@@ -41,7 +41,7 @@ struct IPodWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             // Keep the web view on the bundled page; anything else opens outside.
             if let url = navigationAction.request.url, url.scheme != BundleSchemeHandler.scheme, navigationAction.navigationType == .linkActivated {
-                await UIApplication.shared.open(url)
+                _ = await UIApplication.shared.open(url)
                 return .cancel
             }
             return .allow

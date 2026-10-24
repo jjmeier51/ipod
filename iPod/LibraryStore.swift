@@ -137,7 +137,7 @@ actor LibraryStore {
     }
 
     /// iTunes-style sort key: case-insensitive, ignoring a leading article.
-    nonisolated static func sortKey(_ s: String) -> String {
+    static func sortKey(_ s: String) -> String {
         var k = s.lowercased()
         for article in ["the ", "a ", "an "] where k.hasPrefix(article) {
             k.removeFirst(article.count)

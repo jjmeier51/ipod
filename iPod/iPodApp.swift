@@ -8,9 +8,14 @@ struct iPodApp: App {
 
     init() {
         // Ambient + mixWithOthers: the wheel's clicks never interrupt Spotify.
+        // (.ambient already mixes with other audio.)
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-        try? session.setActive(true)
+        do {
+            try session.setCategory(.ambient, mode: .default)
+            try session.setActive(true)
+        } catch {
+            print("audio session:", error)
+        }
     }
 
     var body: some Scene {
@@ -24,6 +29,7 @@ struct iPodApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
+                services.system.appDidBecomeActive()
                 services.playback.appDidBecomeActive()
             case .background:
                 services.playback.appDidEnterBackground()
