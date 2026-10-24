@@ -81,7 +81,8 @@ actor LibraryStore {
         if let quickTask { return try await quickTask.value }
         let task = Task<Library, Error> { [api] in
             let profile = try? await api.me()
-            let playlists = try await api.playlists()
+            var seen = Set<String>()
+            let playlists = try await api.playlists().filter { seen.insert($0.id).inserted }
             let liked = try await api.savedTracks()
             var lib = Library(userID: profile?.id, playlists: playlists, likedSongs: liked, playlistTracks: [:], followedArtists: [], savedAlbums: [], fetchedAt: Date(), crawlComplete: false)
             lib.derive()
@@ -117,10 +118,12 @@ actor LibraryStore {
             onUpdate?(lib.payload)
         }
 
-        if refetchPlaylists, let fresh = try? await api.playlists() {
+        if refetchPlaylists, let fetched = try? await api.playlists() {
+            var seen = Set<String>()
+            let fresh = fetched.filter { seen.insert($0.id).inserted }
             lib.playlists = fresh
             // Drop cached contents for playlists that changed their snapshot.
-            let snapshots = Dictionary(uniqueKeysWithValues: fresh.map { ($0.id, $0.snapshotID ?? "") })
+            let snapshots = Dictionary(fresh.map { ($0.id, $0.snapshotID ?? "") }, uniquingKeysWith: { a, _ in a })
             for (id, old) in lib.playlistSnapshots where snapshots[id] != old {
                 lib.playlistTracks[id] = nil
             }
