@@ -202,23 +202,41 @@ final class SpotifyWebAPI {
         )
     }
 
+    /// A playlist / library row. Newer API responses put the track under `item`,
+    /// older ones under `track`; accept either.
+    private struct Row: Decodable {
+        let item: APITrack?
+        let track: APITrack?
+        var any: APITrack? { item ?? track }
+    }
+    private static let trackFields = "id,uri,name,type,duration_ms,is_local,artists(id,name),album(id,name)"
+
     func savedTracks() async throws -> [Track] {
-        struct Item: Decodable { let track: APITrack? }
-        let items = try await paged(Item.self, "me/tracks", query: [.init(name: "market", value: "from_token")])
-        return items.compactMap { $0.track }.compactMap { track(from: $0) }
+        let items = try await paged(Row.self, "me/tracks", query: [.init(name: "market", value: "from_token")])
+        return items.compactMap { $0.any }.compactMap { track(from: $0) }
     }
 
     func playlists() async throws -> [Playlist] {
-        struct Item: Decodable { let id: String; let uri: String; let name: String; let tracks: Count?; let snapshot_id: String?; struct Count: Decodable { let total: Int } }
+        struct Count: Decodable { let total: Int? }
+        struct Item: Decodable { let id: String; let uri: String; let name: String; let tracks: Count?; let items: Count?; let snapshot_id: String? }
         let items = try await paged(Item.self, "me/playlists", query: [])
-        return items.map { Playlist(id: $0.id, uri: $0.uri, name: $0.name, trackCount: $0.tracks?.total ?? 0, snapshotID: $0.snapshot_id) }
+        return items.map { Playlist(id: $0.id, uri: $0.uri, name: $0.name, trackCount: $0.items?.total ?? $0.tracks?.total ?? 0, snapshotID: $0.snapshot_id) }
     }
 
     func playlistTracks(id: String) async throws -> [Track] {
-        struct Item: Decodable { let track: APITrack? }
-        let fields = "next,total,items(track(id,uri,name,duration_ms,is_local,type,artists(id,name),album(id,name)))"
-        let items = try await paged(Item.self, "playlists/\(id)/tracks", query: [.init(name: "fields", value: fields), .init(name: "market", value: "from_token"), .init(name: "additional_types", value: "track")])
-        return items.compactMap { $0.track }.compactMap { track(from: $0) }
+        let fields = "next,total,items(is_local,item(\(Self.trackFields)),track(\(Self.trackFields)))"
+        let query: [URLQueryItem] = [.init(name: "fields", value: fields), .init(name: "market", value: "from_token"), .init(name: "additional_types", value: "track")]
+        do {
+            // Current endpoint (rows carry `item`).
+            let rows = try await paged(Row.self, "playlists/\(id)/items", query: query)
+            return rows.compactMap { $0.any }.compactMap { track(from: $0) }
+        } catch {
+            if case APIError.http(let code, _) = error, code == 429 { throw error }
+            log.notice("playlists/\(id, privacy: .public)/items failed (\(error.localizedDescription, privacy: .public)); trying the deprecated path")
+        }
+        // Deprecated endpoint (rows carry `track`).
+        let rows = try await paged(Row.self, "playlists/\(id)/tracks", query: query)
+        return rows.compactMap { $0.any }.compactMap { track(from: $0) }
     }
 
     func followedArtists() async throws -> [Artist] {
